@@ -2,6 +2,8 @@
 Anchor-based relic clicker using asset images
 """
 
+import ocr_total_artifacts_tesseract
+import dataclasses
 import time
 import pydirectinput
 import pygetwindow as gw
@@ -37,7 +39,7 @@ def deduplicate_row_by_x(row, x_threshold=5):
             
     return cleaned_row
 
-def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_threshold=5):
+def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_threshold=5, last_page=False):
     """Build rows from centers, merging rows with close y-coordinates and filtering out invalid rows."""
     if not centers:
         return []
@@ -132,6 +134,9 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
             
             # If current row has fewer items than expected, try to fill from reference row
             if len(row) < expected_per_row:
+                if last_page and i == len(merged_rows) - 1:
+                    filled_rows.append(row)
+                    continue
                 # Get x coordinates from current row
                 current_x_coords = set(cx for cx, cy, cat in row)
                 
@@ -202,7 +207,7 @@ def drag_point_to_point(window, size, from_pt, to_pt, duration=1.5, hold_after=0
     abs_from_y = window.top + int(from_pt[1])
     abs_to_x = window.left + int(to_pt[0])
     abs_to_y = window.top + int(to_pt[1])
-    offset = {"720": 15, "1080": 25, "1440": 30, "2160": 50}
+    offset = {"720": 15, "1080": 25, "1440": 33, "2160": 50}
     # Move to start, press and hold, perform timed move, pause, then release
     pyautogui.moveTo(abs_from_x, abs_from_y)
     time.sleep(0.01)
@@ -404,9 +409,9 @@ def main():
     # Sort all centers top-left -> bottom-right
     combined_centers.sort(key=lambda t: (t[1], t[0]))
     print(f"\nTotal combined matches: {len(combined_centers)}")
+    
 
-    # Build rows by detecting y jumps
-    rows = build_rows_from_centers(combined_centers, expected_per_row=9)
+    
 
     # Grab Total relics
     img = preprocess_for_ocr(capture_screen(window=gfl_window))
@@ -421,6 +426,9 @@ def main():
     else:
         num_relics = detected_total if detected_total else 9999
 
+    # Build rows by detecting y jumps
+    rows = build_rows_from_centers(combined_centers, expected_per_row=9, last_page=num_relics < 63)
+
     processed_count = 0
     relic_data_list = []
     
@@ -433,6 +441,7 @@ def main():
     # --- Main Processing Loop ---
     is_last_page = False
     skip_first_row = False  # To avoid re-clicking the top row after a scroll
+    is_second_last_page = False
 
     while processed_count < num_relics and not is_last_page:
         # A. Find anchors on current screen
@@ -447,26 +456,22 @@ def main():
         if not combined_centers:
             break
 
-        # B. Group into rows
-        rows = build_rows_from_centers(combined_centers, expected_per_row=9)
-        
-        # Check if this is the final page (any row except the last is incomplete)
-        if len(rows[-1]) < 9:
+        if len(rows[-1]) < 9 or (num_relics - processed_count) < 54:
             is_last_page = True
+        if (num_relics - processed_count) < 108:
+            is_second_last_page = True  
+        # B. Group into rows
+        rows = build_rows_from_centers(combined_centers, expected_per_row=9, last_page=is_last_page)
+        # Check if this is the final page (any row except the last is incomplete)
+        
 
         # C. Process Row by Row
         items_to_process = []
-        is_inventory_end = (detected_total and (detected_total - processed_count) < 54) and skip_first_row
-
+        is_inventory_end = (num_relics and (num_relics - processed_count) < 54)
         if is_inventory_end:
-            remaining_inv = detected_total - processed_count
-            print(f"End of inventory reached. Processing the last {remaining_inv} items directly to accommodate scroll offset.")
+            remaining_inv = num_relics - processed_count
             flat_all = [item for row in rows for item in row]
-            items_to_process = flat_all[-remaining_inv:]
-            
-            # Further truncate if -n requires fewer items
-            if (num_relics - processed_count) < len(items_to_process):
-                items_to_process = items_to_process[:(num_relics - processed_count)]
+            items_to_process = flat_all[-(remaining_inv):]            
         else:
             for row_idx, row in enumerate(rows):
                 if skip_first_row and row_idx == 0:
@@ -520,7 +525,11 @@ def main():
             # After scrolling, the bottom row of the PREVIOUS screen 
             # is now the top row of the NEW screen.
             skip_first_row = True
-            time.sleep(1.0) # Wait for scroll animation to settle
+            if is_second_last_page:
+                time.sleep(0.5) # Wait for scroll animation to settle
+            else:
+                time.sleep(0.2) # Wait for scroll animation to settle
+            
         else:
             print("Processing complete or reached the end of the inventory.")
             break
