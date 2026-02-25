@@ -46,7 +46,16 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
     merged_rows = []
     for row in rows:
         if not merged_rows:
-            merged_rows.append(row)
+            unique_row = []
+            if len(row) > expected_per_row:
+                seen_x = set()
+                for cx, cy, cat in row:
+                    if cx not in seen_x:
+                        seen_x.add(cx)
+                        unique_row.append((cx, cy, cat))
+            else:
+                unique_row = row
+            merged_rows.append(sorted(unique_row, key=lambda c: c[0]))
             continue
         last_row = merged_rows[-1]
         if abs(row[0][1] - last_row[0][1]) <= y_gap_threshold:  # Compare first y-coords of consecutive rows
@@ -62,13 +71,22 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
             merged_rows[-1] = unique_row
             merged_rows[-1].sort(key=lambda c: c[0])  # Sort by x-coordinate
         else:
-            seen_x = set()
             unique_row = []
-            for cx, cy, cat in row:
-                if cx not in seen_x:
-                    seen_x.add(cx)
-                    unique_row.append((cx, cy, cat))
+            if len(row) > expected_per_row:
+                seen_x = set()
+                for cx, cy, cat in row:
+                    if cx not in seen_x:
+                        seen_x.add(cx)
+                        unique_row.append((cx, cy, cat))
+            else:
+                unique_row = row
             merged_rows.append(sorted(unique_row, key=lambda c: c[0]))
+    print("merged rows")
+    for ri, row in enumerate(merged_rows, start=1):
+        print(f" Row {ri}: {len(row)} items. Xs: {[r[0] for r in row]} Ys (sample): {[r[1] for r in row][:3]}")\
+    
+    # Remove outliter rows that have too few items, in this case 2 or less, but always keep the last row even if it has fewer items since it may just be a shorter final row
+    merged_rows = [row for row in merged_rows[:-1] if len(row) > 2] + [merged_rows[-1]] if merged_rows else []
 
     # Recalculate median_row_gap after merging rows
     row_gaps = [abs(merged_rows[i][0][1] - merged_rows[i-1][0][1]) for i in range(1, len(merged_rows))]
@@ -77,7 +95,7 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
     # Adjust filtering to avoid discarding valid merged rows
     if len(merged_rows) > 1 and median_row_gap > 0:
         # Define threshold as 2x the median gap
-        gap_threshold = 10 
+        gap_threshold = 3
         filtered_rows = []
         for i, row in enumerate(merged_rows):
             if i == 0:
@@ -91,14 +109,79 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
                 if abs(median_row_gap - gap) <= gap_threshold:
                     filtered_rows.append(row)
                 else:
-                    print(f"Skipping row {i+1} due to large gap ({gap} > {gap_threshold})")
+                    print(f"Skipping row {i+1} due to large gap ({abs(median_row_gap - gap)} > {gap_threshold})")
         merged_rows = filtered_rows
 
     # Limit the number of rows to max_rows
-    if len(filtered_rows) > max_rows:
-        filtered_rows = filtered_rows[:max_rows]
+    if len(merged_rows) > max_rows:
+        merged_rows = merged_rows[:max_rows]
 
-    return filtered_rows
+    # Check for rows that need filling from previous rows
+    filled_rows = []
+    
+    # First, find a complete row (with expected number of items) to use as reference
+    reference_row = None
+    for row in merged_rows:
+        if len(row) == expected_per_row:
+            reference_row = row
+            break
+    if reference_row:
+        for i, row in enumerate(merged_rows):
+            
+            # If current row has fewer items than expected, try to fill from reference row
+            if len(row) < expected_per_row:
+                # Get x coordinates from current row
+                current_x_coords = set(cx for cx, cy, cat in row)
+                
+                # Get x coordinates from reference row (if found)
+                reference_x_coords = set(cx for cx, cy, cat in reference_row) if reference_row else set()
+                
+                # Find missing x coordinates from reference row that aren't already in current row
+                missing_x_coords = reference_x_coords - current_x_coords
+                
+                # Filter out near misses (coordinates that are very close to existing ones)
+                filtered_missing_x_coords = []
+                for missing_x in missing_x_coords:
+                    is_near_miss = False
+                    for existing_x in current_x_coords:
+                        if abs(missing_x - existing_x) <= 7:  # Near miss threshold
+                            is_near_miss = True
+                            break
+                    if not is_near_miss:
+                        filtered_missing_x_coords.append(missing_x)
+                
+                # If we have missing coordinates to add
+                if filtered_missing_x_coords:                    
+                    # Get the Y coordinate of the current row (all items in a row should have same Y)
+                    current_row_y = row[0][1]
+                    
+                    # Create new row with filled coordinates
+                    filled_row = row.copy()
+                    for missing_x in filtered_missing_x_coords:
+                        # Use the current row's Y coordinate, not the reference row's Y coordinate
+                        y_coord = current_row_y
+                        
+                        filled_row.append((missing_x, y_coord, None))  # None for category
+                
+                    # Sort the filled row by x coordinate
+                    filled_row.sort(key=lambda x: x[0])
+                    filled_rows.append(filled_row)
+                else:
+                    filled_rows.append(row)
+            else:
+                filled_rows.append(row)
+
+    # Final validation: ensure all rows except the last have the expected number of items
+    final_rows = []
+    for i, row in enumerate(filled_rows):
+        if i == len(filled_rows) - 1:  # Last row can have fewer items
+            final_rows.append(row)
+        elif len(row) >= expected_per_row:  # Non-last rows should have expected number
+            final_rows.append(row)
+        else:  # If a non-last row has fewer items, we can't really do anything about it
+            final_rows.append(row)
+
+    return final_rows
 
 def drag_point_to_point(window, size, from_pt, to_pt, duration=1.5, hold_after=0.35):
     """Perform a single smooth drag using pyautogui: hold the button for the entire move and
