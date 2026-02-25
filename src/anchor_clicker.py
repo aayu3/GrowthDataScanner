@@ -12,6 +12,112 @@ from pathlib import Path
 import pyautogui
 import argparse
 
+def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_threshold=5):
+    """Build rows from centers, merging rows with close y-coordinates and filtering out invalid rows."""
+    if not centers:
+        return []
+
+    # Sort centers by y-coordinate, then x-coordinate
+    centers.sort(key=lambda c: (c[1], c[0]))
+
+    ys = [c[1] for c in centers]
+    ady = [ys[i+1] - ys[i] for i in range(len(ys)-1)] or [0]
+    median_dy = int(np.median(ady)) if ady else 0
+
+    if y_gap_threshold is None:
+        y_gap_threshold = int(median_dy * 1.5)  # Allow some tolerance
+
+    rows = []
+    cur_row = [centers[0]]
+    prev_y = centers[0][1]
+
+    for cx, cy, cat in centers[1:]:
+        if abs(cy - prev_y) > y_gap_threshold:
+            # Start a new row if the y-gap exceeds the threshold
+            rows.append(cur_row)
+            cur_row = []
+        cur_row.append((cx, cy, cat))
+        prev_y = cy
+
+    if cur_row:
+        rows.append(cur_row)
+
+    # Merge rows with close y-coordinates
+    merged_rows = []
+    for row in rows:
+        if not merged_rows:
+            merged_rows.append(row)
+            continue
+        last_row = merged_rows[-1]
+        if abs(row[0][1] - last_row[0][1]) <= y_gap_threshold:  # Compare first y-coords of consecutive rows
+            # Merge the current row into the last row
+            merged_rows[-1].extend(row)
+            # Remove duplicates based on x-coordinate only (since y-values are already close)
+            seen_x = set()
+            unique_row = []
+            for cx, cy, cat in merged_rows[-1]:
+                if cx not in seen_x:
+                    seen_x.add(cx)
+                    unique_row.append((cx, cy, cat))
+            merged_rows[-1] = unique_row
+            merged_rows[-1].sort(key=lambda c: c[0])  # Sort by x-coordinate
+        else:
+            seen_x = set()
+            unique_row = []
+            for cx, cy, cat in row:
+                if cx not in seen_x:
+                    seen_x.add(cx)
+                    unique_row.append((cx, cy, cat))
+            merged_rows.append(sorted(unique_row, key=lambda c: c[0]))
+
+    # Recalculate median_row_gap after merging rows
+    row_gaps = [abs(merged_rows[i][0][1] - merged_rows[i-1][0][1]) for i in range(1, len(merged_rows))]
+    median_row_gap = np.median(row_gaps) if row_gaps else 0
+
+    # Adjust filtering to avoid discarding valid merged rows
+    if len(merged_rows) > 1 and median_row_gap > 0:
+        # Define threshold as 2x the median gap
+        gap_threshold = 10 
+        filtered_rows = []
+        for i, row in enumerate(merged_rows):
+            if i == 0:
+                # Always keep the first row
+                filtered_rows.append(row)
+            else:
+                # Check if gap from previous kept row is within threshold
+                prev_kept_row_y = filtered_rows[-1][0][1]
+                current_row_y = row[0][1]
+                gap = abs(current_row_y - prev_kept_row_y)
+                if abs(median_row_gap - gap) <= gap_threshold:
+                    filtered_rows.append(row)
+                else:
+                    print(f"Skipping row {i+1} due to large gap ({gap} > {gap_threshold})")
+        merged_rows = filtered_rows
+
+    # Limit the number of rows to max_rows
+    if len(filtered_rows) > max_rows:
+        filtered_rows = filtered_rows[:max_rows]
+
+    return filtered_rows
+
+def drag_point_to_point(window, size, from_pt, to_pt, duration=1.5, hold_after=0.35):
+    """Perform a single smooth drag using pyautogui: hold the button for the entire move and
+    keep it held for a short 'brake' at the end before releasing."""
+    abs_from_x = window.left + int(from_pt[0])
+    abs_from_y = window.top + int(from_pt[1])
+    abs_to_x = window.left + int(to_pt[0])
+    abs_to_y = window.top + int(to_pt[1])
+    offset = {"720": 15, "1080": 25, "1440": 35, "2160": 50}
+    # Move to start, press and hold, perform timed move, pause, then release
+    pyautogui.moveTo(abs_from_x, abs_from_y)
+    time.sleep(0.025)
+    pyautogui.mouseDown()
+    time.sleep(0.025)
+    pyautogui.moveTo(abs_to_x, abs_to_y-offset[size], duration=duration)
+    time.sleep(hold_after)
+    pyautogui.mouseUp()
+    time.sleep(0.04)
+
 def find_gfl_window():
     """Find the GFL2 window"""
     try:
@@ -47,7 +153,7 @@ def take_window_screenshot(window):
         print(f"Error taking screenshot: {e}")
         return None
 
-def find_image_in_window(window, image_path, confidence=0.8, nms_radius=None):
+def find_image_in_window(window, image_path, confidence=0.6, nms_radius=50):
     """Find an image within the window area using template matching with peak suppression (NMS).
     Returns list of (x, y, w, h) (top-left coords relative to window)."""
     try:
@@ -102,36 +208,55 @@ def find_image_in_window(window, image_path, confidence=0.8, nms_radius=None):
         print(f"Error in find_image_in_window: {e}")
         return []
 
-def dedupe_items(items, threshold=5):
-    """Remove items whose centers are within `threshold` pixels of an already-kept item.
-    Items expected as dicts with 'cx' and 'cy' keys. Preserves top-left -> bottom-right order."""
-    items_sorted = sorted(items, key=lambda it: (it['y'], it['x']))
-    kept = []
-    for it in items_sorted:
-        cx, cy = it['cx'], it['cy']
-        too_close = False
-        for k in kept:
-            dx = cx - k['cx']
-            dy = cy - k['cy']
-            if (dx * dx + dy * dy) ** 0.5 <= threshold:
-                too_close = True
+def build_pages_from_rows(rows, window_height, margin=60):
+    """Group consecutive rows into pages based on window_height minus margin.
+    rows: list of rows (each row is list of (cx,cy,cat)), sorted by y."""
+    if not rows:
+        return []
+
+    pages = []
+    i = 0
+    while i < len(rows):
+        page = [rows[i]]
+        top_y = min(r[1] for r in rows[i])
+        j = i + 1
+        while j < len(rows):
+            # representative y for candidate row
+            row_y = min(r[1] for r in rows[j])
+            if row_y - top_y <= (window_height - margin):
+                page.append(rows[j])
+                j += 1
+            else:
                 break
-        if not too_close:
-            kept.append(it)
-    return kept
+        pages.append(page)
+        i = j
+    return pages
+
+def get_resolution_folder(window_width, window_height):
+    """Determine the largest resolution folder smaller or equal to the window height."""
+    resolutions = [
+        (2160, "2160"),
+        (1440, "1440"),
+        (1080, "1080"),
+        (720, "720"),
+    ]
+    # Iterate through resolutions in descending order
+    for res, folder in resolutions:
+        if window_height >= res:
+            return folder
+    return "720"  # Default to the smallest folder if no match
 
 def main():
-    print("GFL2 Anchor-based Clicker")
-    print("=" * 25)
-    print("This script uses asset images to find and click relic locations")
-    print()
-
+    """Entry point (updated: adds -s/--scroll-only to perform only the single scroll)."""
+    import argparse
     parser = argparse.ArgumentParser(description="Anchor clicker: specify a category or leave blank for all")
     parser.add_argument("-t", "--type", choices=["bulwark", "sentinel", "support", "vanguard"], help="Specific category to scan (default: all)")
     parser.add_argument("-a", "--all", action="store_true", help="Click all found matches instead of only first and last")
+    parser.add_argument("-s", "--scroll-only", action="store_true", help="Perform the single scroll only (no clicking); useful for testing scrolling")
     args = parser.parse_args()
     selected_type = args.type
     click_all = args.all
+    scroll_only = args.scroll_only
 
     # Check if required libraries are available
     try:
@@ -151,12 +276,15 @@ def main():
         print("Could not find GFL window")
         return
 
-    # Check for asset folder
-    asset_folder = Path("assets")
+    # Determine the resolution folder
+    resolution_folder = get_resolution_folder(gfl_window.width, gfl_window.height)
+    asset_folder = Path("assets") / resolution_folder
+    print(f"Using assets from resolution folder: {resolution_folder}")
+
     if not asset_folder.exists():
-        print("Assets folder not found. Creating...")
-        asset_folder.mkdir(exist_ok=True)
-        print("Please add your bulwark icon image as 'bulwark.png' in the assets folder")
+        print(f"Assets folder for resolution '{resolution_folder}' not found. Creating...")
+        asset_folder.mkdir(parents=True, exist_ok=True)
+        print(f"Please add your assets to the '{asset_folder}' folder.")
         return
 
     categories = ["bulwark", "sentinel", "support", "vanguard"]
@@ -194,12 +322,6 @@ def main():
         else:
             print(f"  No matches for {img_path.name}")
 
-    # Remove duplicates / near-duplicates within each category (threshold in pixels)
-    # Deduplication disabled per request — keep raw matches for now
-    # DEDUPE_THRESHOLD = 5
-    # for cat in categories:
-    #     per_category[cat] = dedupe_items(per_category.get(cat, []), threshold=DEDUPE_THRESHOLD)
-
     # Rebuild combined_centers from per-category lists (no dedupe)
     combined_centers = [(it['cx'], it['cy'], cat) for cat in categories for it in per_category.get(cat, [])]
 
@@ -222,23 +344,70 @@ def main():
         print("No matches found across selected categories.")
         return
 
-    # Sort all centers top-left -> bottom-right and click first & last overall
+    # Sort all centers top-left -> bottom-right
     combined_centers.sort(key=lambda t: (t[1], t[0]))
     print(f"\nTotal combined matches: {len(combined_centers)}")
+
+    # Build rows by detecting y jumps
+    rows = build_rows_from_centers(combined_centers, expected_per_row=9)
+    print(f"Detected {len(rows)} row(s).")
+    for ri, row in enumerate(rows, start=1):
+        print(f" Row {ri}: {len(row)} items. Xs: {[r[0] for r in row]} Ys (sample): {[r[1] for r in row][:3]}")
+
+    # If user requested scroll-only, perform a single drag from bottom-left -> top-left of detected list and exit
+    if scroll_only:
+        print("Scroll-only mode: performing a single scroll (no clicks).")
+        if len(rows) <= 1:
+            print("Not enough rows to scroll (need >1). Exiting.")
+            return
+        all_points = [(cx, cy) for r in rows for (cx, cy, _) in r]
+        bl_x = min(x for x, y in all_points)
+        bl_y = max(y for x, y in all_points)
+        tl_x = min(x for x, y in all_points)
+        tl_y = min(y for x, y in all_points)
+        bl = (bl_x, bl_y)
+        tl = (tl_x, tl_y)
+        print(f" Performing single scroll: drag from bottom-left {bl} to top-left {tl}")
+        drag_point_to_point(gfl_window, resolution_folder, bl, tl)
+        print("Scroll-only action completed.")
+        return
+
+    # ...existing code that handles clicking (first/last or all) ...
     if click_all:
-        print("Clicking all matched locations")
-        to_click = combined_centers[:]
+        print("Clicking all matched locations (single pass), then performing one scroll for testing.")
+        # click every detected item once (top->bottom, left->right)
+        for row in rows:
+            for cx, cy, cat in row:
+                abs_x = gfl_window.left + cx
+                abs_y = gfl_window.top + cy
+                print(f" Clicking {cat} at ({abs_x}, {abs_y})")
+                pydirectinput.moveTo(abs_x, abs_y)
+                time.sleep(0.10)
+                pydirectinput.click(abs_x, abs_y)
+                time.sleep(0.12)
+
+        # perform a single scroll (drag) from bottom-left of the detected list to top-left
+        if len(rows) > 1:
+            all_points = [(cx, cy) for r in rows for (cx, cy, _) in r]
+            bl_x = min(x for x, y in all_points)
+            bl_y = max(y for x, y in all_points)
+            tl_x = min(x for x, y in all_points)
+            tl_y = min(y for x, y in all_points)
+            bl = (bl_x, bl_y)
+            tl = (tl_x, tl_y)
+            print(f" Scrolling once: drag from bottom-left {bl} to top-left {tl}")
+            drag_point_to_point(gfl_window, bl, tl)
+
     else:
         to_click = [combined_centers[0]] if len(combined_centers) == 1 else [combined_centers[0], combined_centers[-1]]
-
-    for idx, (cx, cy, cat) in enumerate(to_click, start=1):
-        abs_x = gfl_window.left + cx
-        abs_y = gfl_window.top + cy
-        print(f"Clicking {idx}/{len(to_click)} category '{cat}' at window coords ({cx}, {cy}) -> absolute ({abs_x}, {abs_y})")
-        pydirectinput.moveTo(abs_x, abs_y)
-        time.sleep(0.3)
-        pydirectinput.click(abs_x, abs_y)
-        time.sleep(0.4)
+        for idx, (cx, cy, cat) in enumerate(to_click, start=1):
+            abs_x = gfl_window.left + cx
+            abs_y = gfl_window.top + cy
+            print(f"Clicking {idx}/{len(to_click)} category '{cat}' at window coords ({cx}, {cy}) -> absolute ({abs_x}, {abs_y})")
+            pydirectinput.moveTo(abs_x, abs_y)
+            time.sleep(0.3)
+            pydirectinput.click(abs_x, abs_y)
+            time.sleep(0.4)
 
     print("Clicks completed!")
 
