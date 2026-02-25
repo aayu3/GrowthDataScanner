@@ -34,7 +34,7 @@ def find_gfl_window():
     return None
 
 
-def capture_screen(delay: float = 0.0, crop_box=None, save_path: Path = None, window=None):
+def capture_screen(delay: float = 0.0, crop_box=None, save_path: Path = None, window=None, x_start=None):
     """Capture the GFL window if found (or full screen otherwise)."""
     if delay > 0:
         time.sleep(delay)
@@ -44,6 +44,16 @@ def capture_screen(delay: float = 0.0, crop_box=None, save_path: Path = None, wi
         # pygetwindow window geometry: left, top, width, height
         region = (win.left, win.top, win.width, win.height)
         img = pyautogui.screenshot(region=region)
+        
+        # If x_start is specified, crop the image to start from that x coordinate
+        if x_start is not None:
+            # Calculate the new region starting from x_start
+            # Ensure we don't go beyond the window bounds
+            new_left = max(win.left, x_start)
+            new_width = win.width - (new_left - win.left)
+            
+            # Crop the image to the specified region
+            img = img.crop((new_left - win.left, 0, new_left - win.left + new_width, img.height))
     else:
         img = pyautogui.screenshot()
 
@@ -53,6 +63,16 @@ def capture_screen(delay: float = 0.0, crop_box=None, save_path: Path = None, wi
         save_path.parent.mkdir(parents=True, exist_ok=True)
         img.save(save_path)
     return img
+
+    if crop_box:
+        img = img.crop(crop_box)
+    if save_path:
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        img.save(save_path)
+    return img
+
+
+
 
 
 def ocr_with_easyocr(pil_img, reader=None):
@@ -74,16 +94,16 @@ def find_total_artifacts(text):
             return int(tokens[-1])
     return None
 
-
 def main():
     parser = argparse.ArgumentParser(description="Capture screen and OCR to find total artifacts (e.g. '123/1500') using EasyOCR.")
     parser.add_argument("-d", "--delay", type=float, default=0.5, help="Delay before capture (seconds)")
     parser.add_argument("-e", "--enhance", action="store_true", help="Enable preprocessing (default: off)")
     parser.add_argument("--crop", type=int, nargs=4, metavar=('L','T','R','B'), help="Optional crop box (left top right bottom)")
+    parser.add_argument("--x-start", type=int, help="Start capturing from this x coordinate and to the right")
     args = parser.parse_args()
 
     crop_box = tuple(args.crop) if args.crop else None
-    img = capture_screen(delay=args.delay, crop_box=crop_box)
+    img = capture_screen(delay=args.delay, crop_box=crop_box, x_start=args.x_start)
 
     # Use raw capture by default; run preprocessing only if --enhance is provided
     if args.enhance:
@@ -96,7 +116,6 @@ def main():
 
     # Only output detected text (single line)
     print(text.strip())
-
 
 if __name__ == "__main__":
     main()

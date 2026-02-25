@@ -155,3 +155,13 @@ Sentinel Skills
     - {Element} Boost - 5
     - Critical Boost - 3
     - Follow-Up Strike - 2
+
+
+{"type":"Vanguard",
+"total_level": 6,
+"rarity": "Legendary",
+"main_skill": {"name": "Smite Boost"
+"level": 3},
+"aux_skills": [{"name": "Burning Smite, "level": 3}],
+"equipped": "Sharkry"
+}
