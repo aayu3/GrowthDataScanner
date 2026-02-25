@@ -5,6 +5,7 @@ Anchor-based relic clicker using asset images
 import ocr_total_artifacts_tesseract
 import dataclasses
 import time
+import sys
 import pydirectinput
 import pygetwindow as gw
 import cv2
@@ -18,6 +19,13 @@ import json
 import threading
 import queue
 import keyboard
+
+
+def get_runtime_base_dir():
+    """Return the base folder that contains bundled data files."""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent
 
 def deduplicate_row_by_x(row, x_threshold=5):
     """
@@ -350,7 +358,7 @@ def ocr_worker(img_queue, num_relics, relic_data_list, log_callback, progress_ca
     final_count = num_relics
     while True:
         try:
-            item = img_queue.get(timeout=2)
+            item = img_queue.get(timeout=5)
         except queue.Empty:
             # If cancelled and queue is empty, stop gracefully
             if cancel_event and cancel_event.is_set():
@@ -387,7 +395,7 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
     selected_type = config.get("type", None)
     output_path = config.get("output", "inventory.json")
     start_delay = config.get("delay", 2.0)
-    process_delay = config.get("speed", 0.25)
+    process_delay = config.get("speed", 0.3)
     max_relics = config.get("num", None)
 
     # Find GFL window
@@ -402,7 +410,7 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
 
     # Determine the resolution folder
     resolution_folder = get_resolution_folder(gfl_window.width, gfl_window.height)
-    asset_folder = Path("assets") / resolution_folder
+    asset_folder = get_runtime_base_dir() / "assets" / resolution_folder
 
     if not asset_folder.exists():
         asset_folder.mkdir(parents=True, exist_ok=True)
@@ -549,9 +557,7 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
             
             processed_count += 1
 
-        # D. Scroll Logic — abort if cancelled
-        if cancel_event and cancel_event.is_set():
-            break
+        # D. Scroll Logic
         if processed_count < num_relics and not is_last_page:
             if log_callback: log_callback("Finished page. Scrolling...")
             
@@ -571,7 +577,7 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
             if is_second_last_page:
                 time.sleep(0.5) # Wait for scroll animation to settle
             else:
-                time.sleep(0.2) # Wait for scroll animation to settle
+                time.sleep(0.3) # Wait for scroll animation to settle
             
         else:
             if log_callback: log_callback("Scanning complete, waiting for OCR processing to finish...")
@@ -593,4 +599,4 @@ if __name__ == "__main__":
     parser.add_argument("-t",  "--type", choices=["bulwark", "sentinel", "support", "vanguard"], help="Specific category to scan (default: all)")
     parser.add_argument("-n", "--num", type=int, help="Limit processing to a specific number of relics (e.g., 80)")
     args = parser.parse_args()
-    run_scanner({"type": args.type, "num": args.num, "delay": 2.0, "speed": 0.25, "output": "inventory.json"}, lambda msg: print(msg))
+    run_scanner({"type": args.type, "num": args.num, "delay": 2.0, "speed": 0.3, "output": "inventory.json"}, lambda msg: print(msg))

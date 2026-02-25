@@ -40,7 +40,7 @@ class App(ctk.CTk):
         self.speed_label = ctk.CTkLabel(self, text="Scan Delay (s):")
         self.speed_label.grid(row=2, column=0, padx=20, pady=10, sticky="w")
         self.speed_entry = ctk.CTkEntry(self)
-        self.speed_entry.insert(0, "0.27")
+        self.speed_entry.insert(0, "0.3")
         self.speed_entry.grid(row=2, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
         
         # Max Relics Limit
@@ -135,7 +135,7 @@ class App(ctk.CTk):
         parsed_num = int(num_val) if num_val.strip() else None
 
         delay_val = float(self.delay_entry.get() or "2.0")
-        speed_val = float(self.speed_entry.get() or "0.27")
+        speed_val = float(self.speed_entry.get() or "0.3")
         out_val = self.output_entry.get()
 
         config = {
