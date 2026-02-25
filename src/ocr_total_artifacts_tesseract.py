@@ -94,7 +94,7 @@ def capture_screen(delay: float = 0.0, crop_box=None, save_path: Path = None, wi
 def ocr_with_tesseract(img_arr):
     # Allow uppercase, lowercase, numbers, and the slash for your artifact count
     # Note: If you only need numbers and the slash, remove the letters to make it even more accurate.
-    whitelist = "0123456789/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ "
+    whitelist = "0123456789/abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXY-Z "
     
     custom_config = f'--oem 3 --psm 6 -c tessedit_char_whitelist={whitelist}'
     
@@ -134,8 +134,8 @@ def main():
         proc_arr = preprocess_for_ocr(img)
         proc = Image.fromarray(proc_arr)
         # Save the B&W inverted version so you can see what the OCR is reading
-        proc.save("debug_processed.png")
-        print(f"Processed image saved to debug_processed.png")
+        #proc.save("debug_processed.png")
+        #print(f"Processed image saved to debug_processed.png")
     else:
         proc = img
 

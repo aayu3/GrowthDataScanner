@@ -1,14 +1,6 @@
 import re
 from relic_data import RELIC_TYPES, ELEMENTS, DOLL_NAMES
 
-def get_rarity(total_lv):
-    if total_lv >= 5:
-        return "Yellow"
-    elif total_lv >= 3:
-        return "Purple"
-    elif total_lv >= 1:
-        return "Blue"
-    
 def extract_relic_count(text):
     """
     Extracts the current number from strings like '622/1500', 
@@ -32,23 +24,6 @@ def extract_relic_count(text):
         return int(fallback.group(1))
         
     return None
-
-def clean_equipped_text(raw_text):
-    """
-    Directly extracts doll name from the raw text. 
-    partial_ratio excels at finding 'Yoohee' inside 'YooheeAlreadyEquipped'.
-    """
-    # Focus only on the last chunk of text where doll names live
-    search_area = raw_text[-100:] 
-    
-    # scorer=fuzz.partial_ratio is key for substrings
-    match = process.extractOne(search_area, DOLL_NAMES, scorer=fuzz.partial_ratio)
-    
-    if match and match[1] > 85:
-        return match[0]
-    return None
-
-import re
 
 def parse_relic_data(raw_text):
     # 1. Normalize OCR text: Remove newlines and extra spaces to create one long string
@@ -117,7 +92,7 @@ def parse_relic_data(raw_text):
     # 4. Doll Detection (Equipped)
     # Search for doll names in the flattened text
     equipped = None
-    for doll in DOLL_NAMES:
+    for doll in sorted(DOLL_NAMES, key=len, reverse=True):
         if doll.replace(" ", "") in flat_text:
             equipped = doll
             break
@@ -126,9 +101,9 @@ def parse_relic_data(raw_text):
     total_lv = sum(s["level"] for s in extracted_skills)
     
     # Rarity logic: 5-6=Legendary, 3-4=Epic, else Rare
-    if total_lv >= 5: rarity = "Legendary"
-    elif total_lv >= 3: rarity = "Epic"
-    else: rarity = "Rare"
+    if total_lv >= 5: rarity = "T4"
+    elif total_lv >= 3: rarity = "T3"
+    else: rarity = "T2"
 
     return {
         "type": relic_type,

@@ -1,7 +1,7 @@
 # relic_data.py
 
 # Categorized Elements
-ELEMENTS = ["Physical", "Burn", "Electric", "Freeze", "Corrosion", "Hydro"]
+ELEMENTS = ["Physical", "Burn", "Electric", "Freeze", "Corrosion", "Hydro", "Corrosive", "Burning", "Freezing"]
 
 # Rarity Definitions
 RARITIES = {
@@ -76,7 +76,8 @@ RELIC_TYPES = {
             "Breakout Countermeasures": 5,
             "Lex Talionis": 3,
             "Boss Countermeasures": 2,
-            "{Element} Resistance": 5
+            "{Element} Resistance": 5,
+            "Melee Countermeasures": 5,
         }
     },
     "Vanguard": {
@@ -108,6 +109,7 @@ RELIC_TYPES = {
             "Onslaught Stance": 5,
             "Critical Boost": 3,
             "Follow-Up Strike": 2,
+            "Headhunter": 3,
             "{Element} Boost": 5
         }
     }

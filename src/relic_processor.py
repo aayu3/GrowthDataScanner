@@ -7,10 +7,35 @@ import pydirectinput
 import pygetwindow as gw
 import cv2
 import numpy as np
-import os
 from pathlib import Path
 import pyautogui
-import argparse
+from ocr_total_artifacts_tesseract import capture_screen, preprocess_for_ocr, ocr_with_tesseract
+from ocr_to_json import parse_relic_data, extract_relic_count
+from resolution_bounds import RELIC_DATA_CUTOFFS_X
+import json
+
+def deduplicate_row_by_x(row, x_threshold=5):
+    """
+    Sorts a row by X and removes items that are too close to each other.
+    """
+    if not row:
+        return []
+    
+    # Sort by x-coordinate
+    row.sort(key=lambda c: c[0])
+    
+    cleaned_row = [row[0]]
+    for i in range(1, len(row)):
+        current_x = row[i][0]
+        last_cleaned_x = cleaned_row[-1][0]
+        
+        # Only keep if it's further away than the threshold
+        if abs(current_x - last_cleaned_x) > x_threshold:
+            cleaned_row.append(row[i])
+        else:
+            print(f"  Removing duplicate/noise at X: {current_x} (too close to {last_cleaned_x})")
+            
+    return cleaned_row
 
 def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_threshold=5):
     """Build rows from centers, merging rows with close y-coordinates and filtering out invalid rows."""
@@ -46,16 +71,7 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
     merged_rows = []
     for row in rows:
         if not merged_rows:
-            unique_row = []
-            if len(row) > expected_per_row:
-                seen_x = set()
-                for cx, cy, cat in row:
-                    if cx not in seen_x:
-                        seen_x.add(cx)
-                        unique_row.append((cx, cy, cat))
-            else:
-                unique_row = row
-            merged_rows.append(sorted(unique_row, key=lambda c: c[0]))
+            merged_rows.append(sorted(row, key=lambda c: c[0]))
             continue
         last_row = merged_rows[-1]
         if abs(row[0][1] - last_row[0][1]) <= y_gap_threshold:  # Compare first y-coords of consecutive rows
@@ -71,21 +87,9 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
             merged_rows[-1] = unique_row
             merged_rows[-1].sort(key=lambda c: c[0])  # Sort by x-coordinate
         else:
-            unique_row = []
-            if len(row) > expected_per_row:
-                seen_x = set()
-                for cx, cy, cat in row:
-                    if cx not in seen_x:
-                        seen_x.add(cx)
-                        unique_row.append((cx, cy, cat))
-            else:
-                unique_row = row
-            merged_rows.append(sorted(unique_row, key=lambda c: c[0]))
-    print("merged rows")
-    for ri, row in enumerate(merged_rows, start=1):
-        print(f" Row {ri}: {len(row)} items. Xs: {[r[0] for r in row]} Ys (sample): {[r[1] for r in row][:3]}")\
+            merged_rows.append(sorted(row, key=lambda c: c[0]))
     
-    # Remove outliter rows that have too few items, in this case 2 or less, but always keep the last row even if it has fewer items since it may just be a shorter final row
+    # Remove outlier rows that have too few items, in this case 2 or less, but always keep the last row even if it has fewer items since it may just be a shorter final row
     merged_rows = [row for row in merged_rows[:-1] if len(row) > 2] + [merged_rows[-1]] if merged_rows else []
 
     # Recalculate median_row_gap after merging rows
@@ -108,8 +112,6 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
                 gap = abs(current_row_y - prev_kept_row_y)
                 if abs(median_row_gap - gap) <= gap_threshold:
                     filtered_rows.append(row)
-                else:
-                    print(f"Skipping row {i+1} due to large gap ({abs(median_row_gap - gap)} > {gap_threshold})")
         merged_rows = filtered_rows
 
     # Limit the number of rows to max_rows
@@ -171,12 +173,22 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
             else:
                 filled_rows.append(row)
 
+    processed_rows = []
+    for row in filled_rows:
+        # If the row is "too full", it's likely double-detections or noise
+        if len(row) > expected_per_row:
+            cleaned = deduplicate_row_by_x(row, x_threshold=5)
+            processed_rows.append(cleaned)
+        else:
+            row.sort(key=lambda c: c[0])
+            processed_rows.append(row)
+
     # Final validation: ensure all rows except the last have the expected number of items
     final_rows = []
-    for i, row in enumerate(filled_rows):
-        if i == len(filled_rows) - 1:  # Last row can have fewer items
+    for i, row in enumerate(processed_rows):
+        if i == len(processed_rows) - 1:  # Last row can have fewer items
             final_rows.append(row)
-        elif len(row) >= expected_per_row:  # Non-last rows should have expected number
+        elif len(row) == expected_per_row:  # Non-last rows should have expected number
             final_rows.append(row)
         else:  # If a non-last row has fewer items, we can't really do anything about it
             final_rows.append(row)
@@ -190,16 +202,16 @@ def drag_point_to_point(window, size, from_pt, to_pt, duration=1.5, hold_after=0
     abs_from_y = window.top + int(from_pt[1])
     abs_to_x = window.left + int(to_pt[0])
     abs_to_y = window.top + int(to_pt[1])
-    offset = {"720": 15, "1080": 25, "1440": 35, "2160": 50}
+    offset = {"720": 15, "1080": 25, "1440": 30, "2160": 50}
     # Move to start, press and hold, perform timed move, pause, then release
     pyautogui.moveTo(abs_from_x, abs_from_y)
-    time.sleep(0.025)
+    time.sleep(0.01)
     pyautogui.mouseDown()
-    time.sleep(0.025)
+    time.sleep(0.01)
     pyautogui.moveTo(abs_to_x, abs_to_y-offset[size], duration=duration)
     time.sleep(hold_after)
     pyautogui.mouseUp()
-    time.sleep(0.04)
+    time.sleep(0.01)
 
 def find_gfl_window():
     """Find the GFL2 window"""
@@ -330,27 +342,13 @@ def get_resolution_folder(window_width, window_height):
     return "720"  # Default to the smallest folder if no match
 
 def main():
-    """Entry point (updated: adds -s/--scroll-only to perform only the single scroll)."""
     import argparse
     parser = argparse.ArgumentParser(description="Anchor clicker: specify a category or leave blank for all")
-    parser.add_argument("-t", "--type", choices=["bulwark", "sentinel", "support", "vanguard"], help="Specific category to scan (default: all)")
-    parser.add_argument("-a", "--all", action="store_true", help="Click all found matches instead of only first and last")
-    parser.add_argument("-s", "--scroll-only", action="store_true", help="Perform the single scroll only (no clicking); useful for testing scrolling")
+    parser.add_argument("-t",  "--type", choices=["bulwark", "sentinel", "support", "vanguard"], help="Specific category to scan (default: all)")
+    parser.add_argument("-n", "--num", type=int, help="Limit processing to a specific number of relics (e.g., 80)")
     args = parser.parse_args()
     selected_type = args.type
-    click_all = args.all
-    scroll_only = args.scroll_only
 
-    # Check if required libraries are available
-    try:
-        import pygetwindow
-        import cv2
-        import pyautogui
-        print("✓ Required libraries available")
-    except ImportError as e:
-        print(f"✗ Missing library: {e}")
-        print("Install with: pip install pygetwindow opencv-python pyautogui")
-        return
 
     # Find GFL window
     gfl_window = find_gfl_window()
@@ -375,8 +373,8 @@ def main():
         print(f"Scanning only category: {selected_type}")
     else:
         print(f"Looking for categories: {categories}")
-    print("Waiting 5 seconds to let you position the window...")
-    time.sleep(5)
+    print("Waiting 2 seconds to let you position the window...")
+    time.sleep(2)
 
     per_category = {}
     combined_centers = []  # tuples: (cx, cy, category)
@@ -389,11 +387,9 @@ def main():
 
         img_path = asset_folder / f"{cat}.png"
         if not img_path.exists():
-            print(f"Asset missing: {img_path.name} (skipping)")
             per_category[cat] = []
             continue
 
-        print(f"Searching for {img_path.name} in window...")
         matches = find_image_in_window(gfl_window, str(img_path), confidence=0.7)
         per_category[cat] = []
         if matches:
@@ -401,31 +397,9 @@ def main():
                 cx = x + w // 2
                 cy = y + h // 2
                 per_category[cat].append({'x': x, 'y': y, 'w': w, 'h': h, 'cx': cx, 'cy': cy})
-            print(f"  Found {len(matches)} match(es) for {img_path.name}")
-        else:
-            print(f"  No matches for {img_path.name}")
 
     # Rebuild combined_centers from per-category lists (no dedupe)
     combined_centers = [(it['cx'], it['cy'], cat) for cat in categories for it in per_category.get(cat, [])]
-
-    # Print per-category summary (counts + first/last)
-    print("\nPer-category summary:")
-    for cat in categories:
-        items = per_category.get(cat, [])
-        if not items:
-            print(f"- {cat}: 0")
-            continue
-        # sort by top-left -> bottom-right (y then x)
-        items_sorted = sorted(items, key=lambda it: (it['y'], it['x']))
-        first = items_sorted[0]
-        last = items_sorted[-1]
-        first_abs = (gfl_window.left + first['cx'], gfl_window.top + first['cy'])
-        last_abs = (gfl_window.left + last['cx'], gfl_window.top + last['cy'])
-        print(f"- {cat}: {len(items)}; first (window): ({first['cx']}, {first['cy']}) -> absolute: {first_abs}; last (window): ({last['cx']}, {last['cy']}) -> absolute: {last_abs}")
-
-    if not combined_centers:
-        print("No matches found across selected categories.")
-        return
 
     # Sort all centers top-left -> bottom-right
     combined_centers.sort(key=lambda t: (t[1], t[0]))
@@ -433,66 +407,127 @@ def main():
 
     # Build rows by detecting y jumps
     rows = build_rows_from_centers(combined_centers, expected_per_row=9)
-    print(f"Detected {len(rows)} row(s).")
-    for ri, row in enumerate(rows, start=1):
-        print(f" Row {ri}: {len(row)} items. Xs: {[r[0] for r in row]} Ys (sample): {[r[1] for r in row][:3]}")
 
-    # If user requested scroll-only, perform a single drag from bottom-left -> top-left of detected list and exit
-    if scroll_only:
-        print("Scroll-only mode: performing a single scroll (no clicks).")
-        if len(rows) <= 1:
-            print("Not enough rows to scroll (need >1). Exiting.")
-            return
-        all_points = [(cx, cy) for r in rows for (cx, cy, _) in r]
-        bl_x = min(x for x, y in all_points)
-        bl_y = max(y for x, y in all_points)
-        tl_x = min(x for x, y in all_points)
-        tl_y = min(y for x, y in all_points)
-        bl = (bl_x, bl_y)
-        tl = (tl_x, tl_y)
-        print(f" Performing single scroll: drag from bottom-left {bl} to top-left {tl}")
-        drag_point_to_point(gfl_window, resolution_folder, bl, tl)
-        print("Scroll-only action completed.")
-        return
+    # Grab Total relics
+    img = preprocess_for_ocr(capture_screen(window=gfl_window))
+    detected_total = extract_relic_count(ocr_with_tesseract(img))
 
-    # ...existing code that handles clicking (first/last or all) ...
-    if click_all:
-        print("Clicking all matched locations (single pass), then performing one scroll for testing.")
-        # click every detected item once (top->bottom, left->right)
-        for row in rows:
-            for cx, cy, cat in row:
-                abs_x = gfl_window.left + cx
-                abs_y = gfl_window.top + cy
-                print(f" Clicking {cat} at ({abs_x}, {abs_y})")
-                pydirectinput.moveTo(abs_x, abs_y)
-                time.sleep(0.10)
-                pydirectinput.click(abs_x, abs_y)
-                time.sleep(0.12)
+    if args.num:
+        # If user provides -n 80, but OCR says there are only 50, use 50.
+        if detected_total:
+            num_relics = min(detected_total, args.num)
+        else:
+            num_relics = args.num
+    else:
+        num_relics = detected_total if detected_total else 9999
 
-        # perform a single scroll (drag) from bottom-left of the detected list to top-left
-        if len(rows) > 1:
+    processed_count = 0
+    relic_data_list = []
+    
+    if num_relics is None:
+        num_relics = 9999 
+
+    # Get the X-cutoff for the OCR panel based on resolution
+    x_offset = RELIC_DATA_CUTOFFS_X.get(resolution_folder, 1200)
+
+    # --- Main Processing Loop ---
+    is_last_page = False
+    skip_first_row = False  # To avoid re-clicking the top row after a scroll
+
+    while processed_count < num_relics and not is_last_page:
+        # A. Find anchors on current screen
+        combined_centers = []
+        for cat in categories:
+            img_path = asset_folder / f"{cat}.png"
+            if img_path.exists():
+                matches = find_image_in_window(gfl_window, str(img_path), confidence=0.7)
+                for (x, y, w, h) in matches:
+                    combined_centers.append((x + w // 2, y + h // 2, cat))
+        
+        if not combined_centers:
+            break
+
+        # B. Group into rows
+        rows = build_rows_from_centers(combined_centers, expected_per_row=9)
+        
+        # Check if this is the final page (any row except the last is incomplete)
+        if len(rows[-1]) < 9:
+            is_last_page = True
+
+        # C. Process Row by Row
+        items_to_process = []
+        is_inventory_end = (detected_total and (detected_total - processed_count) < 54) and skip_first_row
+
+        if is_inventory_end:
+            remaining_inv = detected_total - processed_count
+            print(f"End of inventory reached. Processing the last {remaining_inv} items directly to accommodate scroll offset.")
+            flat_all = [item for row in rows for item in row]
+            items_to_process = flat_all[-remaining_inv:]
+            
+            # Further truncate if -n requires fewer items
+            if (num_relics - processed_count) < len(items_to_process):
+                items_to_process = items_to_process[:(num_relics - processed_count)]
+        else:
+            for row_idx, row in enumerate(rows):
+                if skip_first_row and row_idx == 0:
+                    print("Skipping already processed top row.")
+                    continue
+                for item in row:
+                    items_to_process.append(item)
+                    if len(items_to_process) >= (num_relics - processed_count):
+                        break
+                if len(items_to_process) >= (num_relics - processed_count):
+                        break
+
+        for cx, cy, cat in items_to_process:
+            if processed_count >= num_relics:
+                break
+
+            # 1. Move and Click
+            abs_x = gfl_window.left + cx
+            abs_y = gfl_window.top + cy
+            pydirectinput.click(abs_x, abs_y)
+                
+            # 2. Wait for UI to update side panel
+            time.sleep(0.25) 
+
+            # 3. Capture and OCR the Data Panel
+            # We use the relative x_offset to ignore the relic grid
+            relic_img = capture_screen(window=gfl_window, x_start_offset=x_offset)
+            relic_text = ocr_with_tesseract(preprocess_for_ocr(relic_img))
+            
+            # 4. Convert to JSON
+            relic_json = parse_relic_data(relic_text)
+            relic_data_list.append(relic_json)
+            
+            processed_count += 1
+            print(f"[{processed_count}/{num_relics}] Processed: {relic_json['type']} | {relic_json['rarity']}")
+
+        # D. Scroll Logic
+        if processed_count < num_relics and not is_last_page:
+            print("Finished page. Scrolling...")
+            
+            # Identify scroll points: Bottom-Left to Top-Left
+            # We use the actual detected centers to ensure the drag stays within the grid
             all_points = [(cx, cy) for r in rows for (cx, cy, _) in r]
             bl_x = min(x for x, y in all_points)
             bl_y = max(y for x, y in all_points)
-            tl_x = min(x for x, y in all_points)
+            tl_x = bl_x # Keep it vertical
             tl_y = min(y for x, y in all_points)
-            bl = (bl_x, bl_y)
-            tl = (tl_x, tl_y)
-            print(f" Scrolling once: drag from bottom-left {bl} to top-left {tl}")
-            drag_point_to_point(gfl_window, bl, tl)
+            
+            drag_point_to_point(gfl_window, resolution_folder, (bl_x, bl_y), (tl_x, tl_y))
+            
+            # After scrolling, the bottom row of the PREVIOUS screen 
+            # is now the top row of the NEW screen.
+            skip_first_row = True
+            time.sleep(1.0) # Wait for scroll animation to settle
+        else:
+            print("Processing complete or reached the end of the inventory.")
+            break
 
-    else:
-        to_click = [combined_centers[0]] if len(combined_centers) == 1 else [combined_centers[0], combined_centers[-1]]
-        for idx, (cx, cy, cat) in enumerate(to_click, start=1):
-            abs_x = gfl_window.left + cx
-            abs_y = gfl_window.top + cy
-            print(f"Clicking {idx}/{len(to_click)} category '{cat}' at window coords ({cx}, {cy}) -> absolute ({abs_x}, {abs_y})")
-            pydirectinput.moveTo(abs_x, abs_y)
-            time.sleep(0.3)
-            pydirectinput.click(abs_x, abs_y)
-            time.sleep(0.4)
-
-    print("Clicks completed!")
-
+    # Final Output
+    print(f"\nSuccessfully logged {len(relic_data_list)} relics.")
+    # You could save to file here: json.dump(r
+    json.dump(relic_data_list, open('inventory.json', 'w'))
 if __name__ == "__main__":
     main()
