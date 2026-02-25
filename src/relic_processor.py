@@ -5,6 +5,7 @@ Anchor-based relic clicker using asset images
 import ocr_total_artifacts_tesseract
 import dataclasses
 import time
+import sys
 import pydirectinput
 import pygetwindow as gw
 import cv2
@@ -15,6 +16,16 @@ from ocr_total_artifacts_tesseract import capture_screen, preprocess_for_ocr, oc
 from ocr_to_json import parse_relic_data, extract_relic_count
 from resolution_bounds import RELIC_DATA_CUTOFFS_X
 import json
+import threading
+import queue
+import keyboard
+
+
+def get_runtime_base_dir():
+    """Return the base folder that contains bundled data files."""
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent
 
 def deduplicate_row_by_x(row, x_threshold=5):
     """
@@ -34,8 +45,6 @@ def deduplicate_row_by_x(row, x_threshold=5):
         # Only keep if it's further away than the threshold
         if abs(current_x - last_cleaned_x) > x_threshold:
             cleaned_row.append(row[i])
-        else:
-            print(f"  Removing duplicate/noise at X: {current_x} (too close to {last_cleaned_x})")
             
     return cleaned_row
 
@@ -250,7 +259,6 @@ def take_window_screenshot(window):
         )
         return screenshot
     except Exception as e:
-        print(f"Error taking screenshot: {e}")
         return None
 
 def find_image_in_window(window, image_path, confidence=0.6, nms_radius=50):
@@ -265,7 +273,6 @@ def find_image_in_window(window, image_path, confidence=0.6, nms_radius=50):
         img_cv = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
         template = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if template is None:
-            print(f"Template not found or unreadable: {image_path}")
             return []
 
         # Grayscale the screenshot
@@ -346,40 +353,77 @@ def get_resolution_folder(window_width, window_height):
             return folder
     return "720"  # Default to the smallest folder if no match
 
-def main():
-    import argparse
-    parser = argparse.ArgumentParser(description="Anchor clicker: specify a category or leave blank for all")
-    parser.add_argument("-t",  "--type", choices=["bulwark", "sentinel", "support", "vanguard"], help="Specific category to scan (default: all)")
-    parser.add_argument("-n", "--num", type=int, help="Limit processing to a specific number of relics (e.g., 80)")
-    args = parser.parse_args()
-    selected_type = args.type
+def ocr_worker(img_queue, num_relics, relic_data_list, log_callback, progress_callback, completion_callback, output_path, cancel_event=None):
+    processed_ocr_count = 0
+    final_count = num_relics
+    while True:
+        try:
+            item = img_queue.get(timeout=5)
+        except queue.Empty:
+            # If cancelled and queue is empty, stop gracefully
+            if cancel_event and cancel_event.is_set():
+                break
+            if log_callback: log_callback("OCR worker timed out waiting for images.")
+            break
+            
+        if item is None: # Sentinel value to stop
+            break
+            
+        idx, relic_img = item
+        
+        relic_text = ocr_with_tesseract(preprocess_for_ocr(relic_img))
+        relic_json = parse_relic_data(relic_text)
+        relic_data_list.append(relic_json)
+        
+        processed_ocr_count += 1
+        
+        if log_callback:
+            log_callback(f"[{processed_ocr_count}/{final_count}] Processed: {relic_json['type']} | {relic_json['rarity']}")
+        if progress_callback:
+            progress_callback(processed_ocr_count, final_count)
+        
+        img_queue.task_done()
+        
+    if completion_callback:
+        with open(output_path, 'w') as f:
+            json.dump(relic_data_list, f, indent=4)
+        cancelled = cancel_event is not None and cancel_event.is_set()
+        completion_callback(len(relic_data_list), output_path, cancelled=cancelled)
 
+
+def run_scanner(config, log_callback=None, progress_callback=None, completion_callback=None, cancel_event=None):
+    selected_type = config.get("type", None)
+    output_path = config.get("output", "inventory.json")
+    start_delay = config.get("delay", 2.0)
+    process_delay = config.get("speed", 0.3)
+    max_relics = config.get("num", None)
 
     # Find GFL window
     gfl_window = find_gfl_window()
 
     if not gfl_window:
-        print("Could not find GFL window")
+        msg = "Could not find GFL window"
+        print(msg)
+        if log_callback: log_callback(msg)
+        if completion_callback: completion_callback(0, output_path)
         return
 
     # Determine the resolution folder
     resolution_folder = get_resolution_folder(gfl_window.width, gfl_window.height)
-    asset_folder = Path("assets") / resolution_folder
-    print(f"Using assets from resolution folder: {resolution_folder}")
+    asset_folder = get_runtime_base_dir() / "assets" / resolution_folder
 
     if not asset_folder.exists():
-        print(f"Assets folder for resolution '{resolution_folder}' not found. Creating...")
         asset_folder.mkdir(parents=True, exist_ok=True)
-        print(f"Please add your assets to the '{asset_folder}' folder.")
         return
 
     categories = ["bulwark", "sentinel", "support", "vanguard"]
-    if selected_type:
-        print(f"Scanning only category: {selected_type}")
-    else:
-        print(f"Looking for categories: {categories}")
-    print("Waiting 2 seconds to let you position the window...")
-    time.sleep(2)
+    if log_callback: log_callback(f"Waiting {start_delay}s before scan. Switch to game window now. Press F8 at any time to cancel.")
+
+    # Register global F8 hotkey to cancel (works even when game window is focused)
+    if cancel_event:
+        keyboard.add_hotkey('f8', cancel_event.set, suppress=False)
+
+    time.sleep(start_delay)
 
     per_category = {}
     combined_centers = []  # tuples: (cx, cy, category)
@@ -408,30 +452,33 @@ def main():
 
     # Sort all centers top-left -> bottom-right
     combined_centers.sort(key=lambda t: (t[1], t[0]))
-    print(f"\nTotal combined matches: {len(combined_centers)}")
-    
-
-    
 
     # Grab Total relics
     img = preprocess_for_ocr(capture_screen(window=gfl_window))
     detected_total = extract_relic_count(ocr_with_tesseract(img))
 
-    if args.num:
-        # If user provides -n 80, but OCR says there are only 50, use 50.
+    if max_relics:
         if detected_total:
-            num_relics = min(detected_total, args.num)
+            num_relics = min(detected_total, max_relics)
         else:
-            num_relics = args.num
+            num_relics = max_relics
     else:
         num_relics = detected_total if detected_total else 9999
 
     # Build rows by detecting y jumps
     rows = build_rows_from_centers(combined_centers, expected_per_row=9, last_page=num_relics < 63)
 
-    processed_count = 0
+    # Start OCR Worker Thread
     relic_data_list = []
-    
+    processed_count = 0
+    img_queue = queue.Queue()
+    ocr_thread = threading.Thread(
+        target=ocr_worker, 
+        args=(img_queue, num_relics, relic_data_list, log_callback, progress_callback, completion_callback, output_path, cancel_event),
+        daemon=True
+    )
+    ocr_thread.start()
+
     if num_relics is None:
         num_relics = 9999 
 
@@ -444,6 +491,10 @@ def main():
     is_second_last_page = False
 
     while processed_count < num_relics and not is_last_page:
+        # Check cancel
+        if cancel_event and cancel_event.is_set():
+            if log_callback: log_callback("Scan cancelled by user.")
+            break
         # A. Find anchors on current screen
         combined_centers = []
         for cat in categories:
@@ -475,7 +526,6 @@ def main():
         else:
             for row_idx, row in enumerate(rows):
                 if skip_first_row and row_idx == 0:
-                    print("Skipping already processed top row.")
                     continue
                 for item in row:
                     items_to_process.append(item)
@@ -487,6 +537,10 @@ def main():
         for cx, cy, cat in items_to_process:
             if processed_count >= num_relics:
                 break
+            # Check cancel every relic so it stops almost immediately
+            if cancel_event and cancel_event.is_set():
+                if log_callback: log_callback("Scan cancelled by user.")
+                break
 
             # 1. Move and Click
             abs_x = gfl_window.left + cx
@@ -494,23 +548,18 @@ def main():
             pydirectinput.click(abs_x, abs_y)
                 
             # 2. Wait for UI to update side panel
-            time.sleep(0.25) 
+            time.sleep(process_delay) 
 
-            # 3. Capture and OCR the Data Panel
+            # 3. Capture Data Panel and Queue it
             # We use the relative x_offset to ignore the relic grid
             relic_img = capture_screen(window=gfl_window, x_start_offset=x_offset)
-            relic_text = ocr_with_tesseract(preprocess_for_ocr(relic_img))
-            
-            # 4. Convert to JSON
-            relic_json = parse_relic_data(relic_text)
-            relic_data_list.append(relic_json)
+            img_queue.put((processed_count, relic_img))
             
             processed_count += 1
-            print(f"[{processed_count}/{num_relics}] Processed: {relic_json['type']} | {relic_json['rarity']}")
 
         # D. Scroll Logic
         if processed_count < num_relics and not is_last_page:
-            print("Finished page. Scrolling...")
+            if log_callback: log_callback("Finished page. Scrolling...")
             
             # Identify scroll points: Bottom-Left to Top-Left
             # We use the actual detected centers to ensure the drag stays within the grid
@@ -528,15 +577,26 @@ def main():
             if is_second_last_page:
                 time.sleep(0.5) # Wait for scroll animation to settle
             else:
-                time.sleep(0.2) # Wait for scroll animation to settle
+                time.sleep(0.3) # Wait for scroll animation to settle
             
         else:
-            print("Processing complete or reached the end of the inventory.")
+            if log_callback: log_callback("Scanning complete, waiting for OCR processing to finish...")
             break
 
-    # Final Output
-    print(f"\nSuccessfully logged {len(relic_data_list)} relics.")
-    # You could save to file here: json.dump(r
-    json.dump(relic_data_list, open('inventory.json', 'w'))
+    # Send sentinel to stop worker
+    img_queue.put(None)
+    ocr_thread.join()
+
+    # Clean up the global F8 hotkey
+    try:
+        keyboard.remove_hotkey('f8')
+    except Exception:
+        pass
+
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description="Anchor clicker: specify a category or leave blank for all")
+    parser.add_argument("-t",  "--type", choices=["bulwark", "sentinel", "support", "vanguard"], help="Specific category to scan (default: all)")
+    parser.add_argument("-n", "--num", type=int, help="Limit processing to a specific number of relics (e.g., 80)")
+    args = parser.parse_args()
+    run_scanner({"type": args.type, "num": args.num, "delay": 2.0, "speed": 0.3, "output": "inventory.json"}, lambda msg: print(msg))

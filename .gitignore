@@ -6,6 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
+Tesseract-OCR/
 # Distribution / packaging
 .Python
 build/
@@ -31,7 +32,8 @@ MANIFEST
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
-
+dist_slim/
+build_slim/
 # Installer logs
 pip-log.txt
 pip-delete-this-directory.txt

@@ -1,4 +1,5 @@
 import re
+import os
 import sys
 import time
 import argparse
@@ -17,8 +18,15 @@ except Exception as e:
     sys.exit(1)
 
 # --- WINDOWS CONFIGURATION ---
-# Uncomment and update this path if Tesseract isn't in your System PATH
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Resolve Tesseract path: works both when bundled by PyInstaller and when run from source
+if getattr(sys, 'frozen', False):
+    # Running as a PyInstaller bundle — Tesseract-OCR is next to the exe in _MEIPASS
+    _base = Path(sys._MEIPASS)
+else:
+    # Running from source — Tesseract-OCR is a sibling of this script
+    _base = Path(__file__).parent
+pytesseract.pytesseract.tesseract_cmd = str(_base / 'Tesseract-OCR' / 'tesseract.exe')
+os.environ.setdefault('TESSDATA_PREFIX', str(_base / 'Tesseract-OCR' / 'tessdata'))
 
 def preprocess_for_ocr(pil_img):
     """
