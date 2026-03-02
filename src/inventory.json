@@ -1,42 +1,94 @@
 [
     {
-        "type": "Bulwark",
-        "total_level": 6,
-        "rarity": "T4",
+        "type": "Sentinel",
+        "total_level": 4,
+        "rarity": "T3",
         "main_skill": {
-            "name": "Pinpoint Defense",
-            "level": 3
+            "name": "Attack Boost",
+            "level": 2
         },
         "aux_skills": [
             {
-                "name": "Electric Resistance",
-                "level": 2
+                "name": "Onslaught Mastery",
+                "level": 1
             },
             {
-                "name": "CQC Elite",
+                "name": "Shock and Awe",
                 "level": 1
             }
         ],
-        "equipped": "Klukai"
+        "equipped": "Lind"
     },
     {
-        "type": "Bulwark",
-        "total_level": 6,
-        "rarity": "T4",
+        "type": "Sentinel",
+        "total_level": 4,
+        "rarity": "T3",
         "main_skill": {
-            "name": "Annular Defense",
-            "level": 3
+            "name": "Pinpoint Specialization",
+            "level": 2
         },
         "aux_skills": [
             {
-                "name": "Ichor Conversion",
+                "name": "Raid Stance",
                 "level": 2
+            }
+        ],
+        "equipped": null
+    },
+    {
+        "type": "Sentinel",
+        "total_level": 4,
+        "rarity": "T3",
+        "main_skill": {
+            "name": "Area Specialization",
+            "level": 2
+        },
+        "aux_skills": [
+            {
+                "name": "Ambush Mastery",
+                "level": 1
             },
             {
-                "name": "Equilibrium Recovery",
+                "name": "Bloodthirst",
                 "level": 1
             }
         ],
-        "equipped": "Suomi"
+        "equipped": null
+    },
+    {
+        "type": "Sentinel",
+        "total_level": 4,
+        "rarity": "T3",
+        "main_skill": {
+            "name": "Attack Boost",
+            "level": 2
+        },
+        "aux_skills": [
+            {
+                "name": "Ambush Mastery",
+                "level": 1
+            },
+            {
+                "name": "Follow-Up Strike",
+                "level": 1
+            }
+        ],
+        "equipped": null
+    },
+    {
+        "type": "Sentinel",
+        "total_level": 4,
+        "rarity": "T3",
+        "main_skill": {
+            "name": "Pinpoint Specialization",
+            "level": 2
+        },
+        "aux_skills": [
+            {
+                "name": "Raid Stance",
+                "level": 2
+            }
+        ],
+        "equipped": null
     }
 ]
