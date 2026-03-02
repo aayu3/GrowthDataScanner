@@ -186,6 +186,8 @@ def build_rows_from_centers(centers, expected_per_row=9, max_rows=7, y_gap_thres
                     filled_rows.append(row)
             else:
                 filled_rows.append(row)
+    else:
+        filled_rows = merged_rows.copy()
 
     processed_rows = []
     for row in filled_rows:
@@ -511,7 +513,7 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
         
         if log_callback: log_callback(f"Detected {len(combined_centers)} relics after scroll.")
 
-        if len(rows[-1]) < 9 or (num_relics - processed_count) < 54:
+        if not rows or len(rows[-1]) < 9 or (num_relics - processed_count) < 54:
             is_last_page = True
         if (num_relics - processed_count) < 108:
             is_second_last_page = True  
