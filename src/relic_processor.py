@@ -393,7 +393,97 @@ def ocr_worker(img_queue, num_relics, relic_data_list, log_callback, progress_ca
         completion_callback(len(relic_data_list), output_path, cancelled=cancelled)
 
 
+def run_manual_scanner(config, log_callback=None, progress_callback=None, completion_callback=None, cancel_event=None):
+    output_path = config.get("output", "inventory.json")
+    start_delay = config.get("delay", 2.0)
+    ocr_timeout = config.get("timeout", 10.0)
+    hotkey = config.get("hotkey", "q")
+
+    # Find GFL window
+    gfl_window = find_gfl_window()
+
+    if not gfl_window:
+        msg = "Could not find GFL window"
+        print(msg)
+        if log_callback: log_callback(msg)
+        if completion_callback: completion_callback(0, output_path)
+        return
+
+    # Determine the resolution folder
+    resolution_folder = get_resolution_folder(gfl_window.width, gfl_window.height)
+    # Get the X-cutoff for the OCR panel based on resolution
+    x_offset = RELIC_DATA_CUTOFFS_X.get(resolution_folder, 1200)
+
+    if log_callback: log_callback(f"Manual Mode: Waiting {start_delay}s before scanning starts. Switch to game window now. Press F8 to conclude scan.")
+
+    # Register global F8 hotkey to cancel
+    if cancel_event:
+        keyboard.add_hotkey('f8', cancel_event.set, suppress=False)
+
+    capture_event = threading.Event()
+    try:
+        keyboard.add_hotkey(hotkey, capture_event.set, suppress=False)
+    except Exception as e:
+        if log_callback: log_callback(f"Failed to bind hotkey '{hotkey}': {e}. Defaulting to 'q'")
+        hotkey = 'q'
+        keyboard.add_hotkey(hotkey, capture_event.set, suppress=False)
+
+    time.sleep(start_delay)
+
+    # Start OCR Worker Thread
+    relic_data_list = []
+    processed_count = 0
+    img_queue = queue.Queue()
+    ocr_thread = threading.Thread(
+        target=ocr_worker, 
+        args=(img_queue, 9999, relic_data_list, log_callback, progress_callback, completion_callback, output_path, ocr_timeout, cancel_event),
+        daemon=True
+    )
+    ocr_thread.start()
+
+    if log_callback: log_callback(f"Monitoring for manual captures (Press '{hotkey}')...")
+
+    while True:
+        if cancel_event and cancel_event.is_set():
+            if log_callback: log_callback("Manual scan concluded by user.")
+            break
+            
+        if capture_event.is_set():
+            capture_event.clear()
+            if log_callback: log_callback(f"Captured screen via '{hotkey}' hotkey. Processing OCR...")
+            
+            try:
+                # Capture Data Panel (right side)
+                relic_img = capture_screen(window=gfl_window, x_start_offset=x_offset)
+                img_queue.put((processed_count, relic_img))
+                processed_count += 1
+            except Exception as e:
+                if log_callback: log_callback(f"Error during screen capture: {e}")
+                
+            # Allow a small delay to prevent rapid double-captures from a single keypress
+            time.sleep(0.3)
+            # Clear it again in case key auto-repeat set it while we were sleeping
+            capture_event.clear()
+            
+        time.sleep(0.05) # ~20 fps loop
+
+    # Send sentinel to stop worker
+    img_queue.put(None)
+    ocr_thread.join()
+
+    # Clean up the hotkeys
+    try:
+        keyboard.remove_hotkey('f8')
+        keyboard.remove_hotkey(hotkey)
+    except Exception:
+        pass
+
+
 def run_scanner(config, log_callback=None, progress_callback=None, completion_callback=None, cancel_event=None):
+    mode = config.get("mode", "Auto")
+    if mode == "Manual":
+        return run_manual_scanner(config, log_callback, progress_callback, completion_callback, cancel_event)
+
     selected_type = config.get("type", None)
     output_path = config.get("output", "inventory.json")
     start_delay = config.get("delay", 2.0)
