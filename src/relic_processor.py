@@ -340,25 +340,25 @@ def build_pages_from_rows(rows, window_height, margin=60):
     return pages
 
 def get_resolution_folder(window_width, window_height):
-    """Determine the largest resolution folder smaller or equal to the window height."""
+    """Determine the largest resolution folder smaller or equal to the window width."""
     resolutions = [
-        (2160, "2160"),
-        (1440, "1440"),
-        (1080, "1080"),
-        (720, "720"),
+        (3840, "2160"),
+        (2560, "1440"),
+        (1920, "1080"),
+        (1280, "720"),
     ]
     # Iterate through resolutions in descending order
     for res, folder in resolutions:
-        if window_height >= res:
+        if window_width >= res:
             return folder
     return "720"  # Default to the smallest folder if no match
 
-def ocr_worker(img_queue, num_relics, relic_data_list, log_callback, progress_callback, completion_callback, output_path, cancel_event=None):
+def ocr_worker(img_queue, num_relics, relic_data_list, log_callback, progress_callback, completion_callback, output_path, ocr_timeout=10, cancel_event=None):
     processed_ocr_count = 0
     final_count = num_relics
     while True:
         try:
-            item = img_queue.get(timeout=5)
+            item = img_queue.get(timeout=ocr_timeout)
         except queue.Empty:
             # If cancelled and queue is empty, stop gracefully
             if cancel_event and cancel_event.is_set():
@@ -397,6 +397,7 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
     start_delay = config.get("delay", 2.0)
     process_delay = config.get("speed", 0.3)
     max_relics = config.get("num", None)
+    ocr_timeout = config.get("timeout", 10.0)
 
     # Find GFL window
     gfl_window = find_gfl_window()
@@ -449,6 +450,7 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
 
     # Rebuild combined_centers from per-category lists (no dedupe)
     combined_centers = [(it['cx'], it['cy'], cat) for cat in categories for it in per_category.get(cat, [])]
+    if log_callback: log_callback(f"Detected {len(combined_centers)} relics on the first page.")
 
     # Sort all centers top-left -> bottom-right
     combined_centers.sort(key=lambda t: (t[1], t[0]))
@@ -474,7 +476,7 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
     img_queue = queue.Queue()
     ocr_thread = threading.Thread(
         target=ocr_worker, 
-        args=(img_queue, num_relics, relic_data_list, log_callback, progress_callback, completion_callback, output_path, cancel_event),
+        args=(img_queue, num_relics, relic_data_list, log_callback, progress_callback, completion_callback, output_path, ocr_timeout, cancel_event),
         daemon=True
     )
     ocr_thread.start()
@@ -506,6 +508,8 @@ def run_scanner(config, log_callback=None, progress_callback=None, completion_ca
         
         if not combined_centers:
             break
+        
+        if log_callback: log_callback(f"Detected {len(combined_centers)} relics after scroll.")
 
         if len(rows[-1]) < 9 or (num_relics - processed_count) < 54:
             is_last_page = True

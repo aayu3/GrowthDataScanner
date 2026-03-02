@@ -26,7 +26,7 @@ class App(ctk.CTk):
         self.output_entry.insert(0, "inventory.json")
         self.output_entry.grid(row=0, column=1, padx=(0, 10), pady=(20, 10), sticky="ew")
         
-        self.output_btn = ctk.CTkButton(self, text="Browse", command=self.browse_file, width=80)
+        self.output_btn = ctk.CTkButton(self, text="Browse", command=self.browse_file, width=80, fg_color="#f26c15", hover_color="#d35400")
         self.output_btn.grid(row=0, column=2, padx=(0, 20), pady=(20, 10))
 
         # Start Delay Configuration
@@ -52,25 +52,32 @@ class App(ctk.CTk):
         # Category Dropdown
         self.cat_label = ctk.CTkLabel(self, text="Category:")
         self.cat_label.grid(row=4, column=0, padx=20, pady=10, sticky="w")
-        self.cat_optionmenu = ctk.CTkOptionMenu(self, values=["All", "bulwark", "sentinel", "support", "vanguard"])
+        self.cat_optionmenu = ctk.CTkOptionMenu(self, values=["All", "bulwark", "sentinel", "support", "vanguard"], fg_color="#f26c15", button_color="#f26c15", button_hover_color="#d35400")
         self.cat_optionmenu.grid(row=4, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+
+        # OCR Timeout Configuration
+        self.timeout_label = ctk.CTkLabel(self, text="OCR Timeout (s):")
+        self.timeout_label.grid(row=5, column=0, padx=20, pady=10, sticky="w")
+        self.timeout_entry = ctk.CTkEntry(self)
+        self.timeout_entry.insert(0, "10.0")
+        self.timeout_entry.grid(row=5, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
 
         # Log Text Box
         self.log_textbox = ctk.CTkTextbox(self, height=200)
-        self.log_textbox.grid(row=5, column=0, columnspan=3, padx=20, pady=10, sticky="nsew")
+        self.log_textbox.grid(row=6, column=0, columnspan=3, padx=20, pady=10, sticky="nsew")
         self.log_textbox.configure(state="disabled")
 
         # Progress Bar
-        self.progressbar = ctk.CTkProgressBar(self)
-        self.progressbar.grid(row=6, column=0, columnspan=3, padx=20, pady=10, sticky="ew")
+        self.progressbar = ctk.CTkProgressBar(self, progress_color="#f26c15")
+        self.progressbar.grid(row=7, column=0, columnspan=3, padx=20, pady=10, sticky="ew")
         self.progressbar.set(0)
 
         # Start / Stop Buttons
-        self.start_btn = ctk.CTkButton(self, text="Start Scan", command=self.start_scan)
-        self.start_btn.grid(row=7, column=0, columnspan=2, padx=(20, 5), pady=(10, 20), sticky="ew")
+        self.start_btn = ctk.CTkButton(self, text="Start Scan", command=self.start_scan, fg_color="#f26c15", hover_color="#d35400")
+        self.start_btn.grid(row=8, column=0, columnspan=2, padx=(20, 5), pady=(10, 20), sticky="ew")
 
         self.stop_btn = ctk.CTkButton(self, text="Stop (F8)", fg_color="#c0392b", hover_color="#96281b", command=self.cancel_scan, state="disabled")
-        self.stop_btn.grid(row=7, column=2, padx=(5, 20), pady=(10, 20), sticky="ew")
+        self.stop_btn.grid(row=8, column=2, padx=(5, 20), pady=(10, 20), sticky="ew")
 
     def browse_file(self):
         filename = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
@@ -136,6 +143,7 @@ class App(ctk.CTk):
 
         delay_val = float(self.delay_entry.get() or "2.0")
         speed_val = float(self.speed_entry.get() or "0.3")
+        timeout_val = float(self.timeout_entry.get() or "10.0")
         out_val = self.output_entry.get()
 
         config = {
@@ -143,6 +151,7 @@ class App(ctk.CTk):
             "num": parsed_num,
             "delay": delay_val,
             "speed": speed_val,
+            "timeout": timeout_val,
             "output": out_val
         }
 
