@@ -12,7 +12,7 @@ class App(ctk.CTk):
         super().__init__()
 
         self.title("GFL2 Relic Scanner")
-        self.geometry("600x650")
+        self.geometry("600x700")
         self._cancel_event = None
 
         # Layout
@@ -29,61 +29,93 @@ class App(ctk.CTk):
         self.output_btn = ctk.CTkButton(self, text="Browse", command=self.browse_file, width=80, fg_color="#f26c15", hover_color="#d35400")
         self.output_btn.grid(row=0, column=2, padx=(0, 20), pady=(20, 10))
 
+        # Scan Mode Configuration
+        self.mode_label = ctk.CTkLabel(self, text="Scan Mode:")
+        self.mode_label.grid(row=1, column=0, padx=20, pady=10, sticky="w")
+        self.mode_optionmenu = ctk.CTkOptionMenu(self, values=["Auto", "Manual"], command=self.toggle_mode_options, fg_color="#f26c15", button_color="#f26c15", button_hover_color="#d35400")
+        self.mode_optionmenu.grid(row=1, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+
+        # Manual Hotkey Configuration
+        self.hotkey_label = ctk.CTkLabel(self, text="Manual Hotkey:")
+        self.hotkey_entry = ctk.CTkEntry(self)
+        self.hotkey_entry.insert(0, "q")
+
         # Start Delay Configuration
         self.delay_label = ctk.CTkLabel(self, text="Start Delay (s):")
-        self.delay_label.grid(row=1, column=0, padx=20, pady=10, sticky="w")
+        self.delay_label.grid(row=3, column=0, padx=20, pady=10, sticky="w")
         self.delay_entry = ctk.CTkEntry(self)
-        self.delay_entry.insert(0, "2.0")
-        self.delay_entry.grid(row=1, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+        self.delay_entry.insert(0, "1.0")
+        self.delay_entry.grid(row=3, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
         
         # Speed Configuration
         self.speed_label = ctk.CTkLabel(self, text="Scan Delay (s):")
-        self.speed_label.grid(row=2, column=0, padx=20, pady=10, sticky="w")
+        self.speed_label.grid(row=4, column=0, padx=20, pady=10, sticky="w")
         self.speed_entry = ctk.CTkEntry(self)
         self.speed_entry.insert(0, "0.3")
-        self.speed_entry.grid(row=2, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+        self.speed_entry.grid(row=4, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
         
         # Max Relics Limit
         self.num_label = ctk.CTkLabel(self, text="Max Relics (Blank=All):")
-        self.num_label.grid(row=3, column=0, padx=20, pady=10, sticky="w")
+        self.num_label.grid(row=5, column=0, padx=20, pady=10, sticky="w")
         self.num_entry = ctk.CTkEntry(self)
-        self.num_entry.grid(row=3, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+        self.num_entry.grid(row=5, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
 
         # Category Dropdown
         self.cat_label = ctk.CTkLabel(self, text="Category:")
-        self.cat_label.grid(row=4, column=0, padx=20, pady=10, sticky="w")
+        self.cat_label.grid(row=6, column=0, padx=20, pady=10, sticky="w")
         self.cat_optionmenu = ctk.CTkOptionMenu(self, values=["All", "bulwark", "sentinel", "support", "vanguard"], fg_color="#f26c15", button_color="#f26c15", button_hover_color="#d35400")
-        self.cat_optionmenu.grid(row=4, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+        self.cat_optionmenu.grid(row=6, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
 
         # OCR Timeout Configuration
         self.timeout_label = ctk.CTkLabel(self, text="OCR Timeout (s):")
-        self.timeout_label.grid(row=5, column=0, padx=20, pady=10, sticky="w")
+        self.timeout_label.grid(row=7, column=0, padx=20, pady=10, sticky="w")
         self.timeout_entry = ctk.CTkEntry(self)
         self.timeout_entry.insert(0, "10.0")
-        self.timeout_entry.grid(row=5, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+        self.timeout_entry.grid(row=7, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
 
         # Log Text Box
         self.log_textbox = ctk.CTkTextbox(self, height=200)
-        self.log_textbox.grid(row=6, column=0, columnspan=3, padx=20, pady=10, sticky="nsew")
+        self.log_textbox.grid(row=8, column=0, columnspan=3, padx=20, pady=10, sticky="nsew")
         self.log_textbox.configure(state="disabled")
 
         # Progress Bar
         self.progressbar = ctk.CTkProgressBar(self, progress_color="#f26c15")
-        self.progressbar.grid(row=7, column=0, columnspan=3, padx=20, pady=10, sticky="ew")
+        self.progressbar.grid(row=9, column=0, columnspan=3, padx=20, pady=10, sticky="ew")
         self.progressbar.set(0)
 
         # Start / Stop Buttons
         self.start_btn = ctk.CTkButton(self, text="Start Scan", command=self.start_scan, fg_color="#f26c15", hover_color="#d35400")
-        self.start_btn.grid(row=8, column=0, columnspan=2, padx=(20, 5), pady=(10, 20), sticky="ew")
+        self.start_btn.grid(row=10, column=0, columnspan=2, padx=(20, 5), pady=(10, 20), sticky="ew")
 
         self.stop_btn = ctk.CTkButton(self, text="Stop (F8)", fg_color="#c0392b", hover_color="#96281b", command=self.cancel_scan, state="disabled")
-        self.stop_btn.grid(row=8, column=2, padx=(5, 20), pady=(10, 20), sticky="ew")
+        self.stop_btn.grid(row=10, column=2, padx=(5, 20), pady=(10, 20), sticky="ew")
+
+        # Initialize visibility state based on default mode
+        self.toggle_mode_options(self.mode_optionmenu.get())
 
     def browse_file(self):
         filename = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
         if filename:
             self.output_entry.delete(0, "end")
             self.output_entry.insert(0, filename)
+
+    def toggle_mode_options(self, mode):
+        # In Manual Mode, show Hotkey config. In Auto Mode, hide it.
+        # We also hide "Max Relics" and "Category" in Manual since they are irrelevant.
+        if mode == "Manual":
+            self.hotkey_label.grid(row=2, column=0, padx=20, pady=10, sticky="w")
+            self.hotkey_entry.grid(row=2, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+            self.num_label.grid_remove()
+            self.num_entry.grid_remove()
+            self.cat_label.grid_remove()
+            self.cat_optionmenu.grid_remove()
+        else:
+            self.hotkey_label.grid_remove()
+            self.hotkey_entry.grid_remove()
+            self.num_label.grid(row=5, column=0, padx=20, pady=10, sticky="w")
+            self.num_entry.grid(row=5, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
+            self.cat_label.grid(row=6, column=0, padx=20, pady=10, sticky="w")
+            self.cat_optionmenu.grid(row=6, column=1, columnspan=2, padx=20, pady=10, sticky="ew")
 
     def log_message(self, message):
         # Must schedule GUI updates from the main thread
@@ -135,6 +167,8 @@ class App(ctk.CTk):
         self._cancel_event = threading.Event()
 
         # Read configs
+        mode_val = self.mode_optionmenu.get()
+        hotkey_val = self.hotkey_entry.get() or "q"
         cat_val = self.cat_optionmenu.get()
         parsed_cat = cat_val if cat_val != "All" else None
         
@@ -147,6 +181,8 @@ class App(ctk.CTk):
         out_val = self.output_entry.get()
 
         config = {
+            "mode": mode_val,
+            "hotkey": hotkey_val,
             "type": parsed_cat,
             "num": parsed_num,
             "delay": delay_val,
