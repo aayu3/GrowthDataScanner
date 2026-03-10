@@ -4,6 +4,8 @@ Desktop scanner for **Girls' Frontline 2: Exilium** relic data.
 
 The app scans relics from the game window using OpenCV + Tesseract OCR and exports a JSON inventory file.
 
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/N4N51V6NN9)
+
 ## Important
 
 - Supported game window resolutions are currently limited to `1080p`, `1440p`, and `2160p`.
