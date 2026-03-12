@@ -63,7 +63,7 @@ DOLL_NAMES = [
     "Ullrid",
     "Vector",
     "Vepley",
-    "Voymastina"
+    "Voymastina",
     "Yoohee",
     "Zhaohui"
 ]
