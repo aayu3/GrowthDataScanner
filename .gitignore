@@ -3,9 +3,11 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+gui.dist/
+
 # C extensions
 *.so
-
+buildinstruction.md
 Tesseract-OCR/
 # Distribution / packaging
 .Python
@@ -31,7 +33,7 @@ MANIFEST
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
-*.spec
+
 dist_slim/
 build_slim/
 # Installer logs
