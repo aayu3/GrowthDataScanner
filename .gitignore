@@ -3,9 +3,11 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+gui.dist/
+
 # C extensions
 *.so
-
+buildinstruction.md
 Tesseract-OCR/
 # Distribution / packaging
 .Python
