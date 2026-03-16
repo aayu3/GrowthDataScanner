@@ -33,6 +33,9 @@ Use the prebuilt `dist_slim` zip release.
 4. Click **Start Scan** and switch to the game window before the delay finishes.
 5. Press **F8** any time to cancel gracefully and save partial results.
 
+## Common Bugs
+If image recongition is bugged try turning off HDR as it can interfere with color accuracy for image matching. Similarly if the app is unable to capture your window and the OCR worker times out, consider running the app in Administrator mode
+
 ## Output Format
 
 Scanner output is JSON, e.g.:
